@@ -1,0 +1,109 @@
+// Programa para un contador de pacientes con ESP32, dos displays de 7 segmentos y alarma visual.
+// Al llegar a 60 pacientes, se activa una alarma que parpadea cada 500 ms hasta que el conteo disminuya.
+
+// --- Definición de pines ---
+#define PULSADOR_INGRESO 12      // Pulsador para ingresar pacientes
+#define PULSADOR_SALIDA 14       // Pulsador para salir pacientes
+#define ALARMA 27                // LED o buzzer para la alarma visual
+
+// Pines para el decodificador 74LS47 del display de las unidades
+#define DECODIFICADOR_UNIDADES_A 2
+#define DECODIFICADOR_UNIDADES_B 4
+#define DECODIFICADOR_UNIDADES_C 16
+#define DECODIFICADOR_UNIDADES_D 17
+
+// Pines para el decodificador 74LS47 del display de las decenas
+#define DECODIFICADOR_DECENAS_A 18
+#define DECODIFICADOR_DECENAS_B 19
+#define DECODIFICADOR_DECENAS_C 21
+#define DECODIFICADOR_DECENAS_D 22
+
+// --- Variables globales ---
+int contador = 0;                           // Cuenta actual de pacientes
+unsigned long ultimoTiempoIngreso = 0;          // Último tiempo de lectura del pulsador de ingreso
+unsigned long ultimoTiempoSalida = 0;           // Último tiempo de lectura del pulsador de salida
+unsigned long ultimoParpadeo = 0;           // Tiempo del último cambio de estado en la alarma
+const unsigned long debounceDelay = 200;    // Tiempo de anti-rebote para los pulsadores (ms)
+const unsigned long intervaloParpadeo = 500; // Intervalo de parpadeo de la alarma (ms)
+bool alarmaActiva = false;                  // Estado de activación de la alarma
+bool estadoAlarma = LOW;                    // Estado actual del LED de la alarma
+
+// --- Configuración inicial ---
+void setup() {
+  // Configurar pulsadores con resistencias internas pull-up
+  pinMode(PULSADOR_INGRESO, INPUT_PULLUP);
+  pinMode(PULSADOR_SALIDA, INPUT_PULLUP);
+
+  // Configurar salida para la alarma
+  pinMode(ALARMA, OUTPUT);
+
+  // Configurar pines de salida para los decodificadores
+  int pines[] = {DECODIFICADOR_UNIDADES_A, DECODIFICADOR_UNIDADES_B, DECODIFICADOR_UNIDADES_C, DECODIFICADOR_UNIDADES_D,
+                 DECODIFICADOR_DECENAS_A, DECODIFICADOR_DECENAS_B, DECODIFICADOR_DECENAS_C, DECODIFICADOR_DECENAS_D};
+  for (int i = 0; i < 8; i++) {
+    pinMode(pines[i], OUTPUT);
+  }
+
+  digitalWrite(ALARMA, LOW); // Apaga la alarma al iniciar
+  mostrarNumero(contador);   // Muestra el número inicial (0) en los displays
+}
+
+// --- Bucle principal ---
+void loop() {
+  unsigned long tiempoActual = millis(); // Tiempo actual para manejo de temporización
+
+  // --- Manejo del pulsador de ingreso ---
+  // Si se presiona el pulsador de ingreso, se aumenta el contador (máximo 60)
+  if (digitalRead(PULSADOR_INGRESO) == LOW && (tiempoActual - ultimoTiempoIngreso) > debounceDelay && contador < 60) {
+    contador++;
+    ultimoTiempoIngreso = tiempoActual;  // Actualiza el tiempo para evitar rebotes
+    mostrarNumero(contador);             // Actualiza el número en los displays
+  }
+
+  // --- Manejo del pulsador de salida ---
+  // Si se presiona el pulsador de salida, se disminuye el contador (mínimo 0)
+  if (digitalRead(PULSADOR_SALIDA) == LOW && (tiempoActual - ultimoTiempoSalida) > debounceDelay && contador > 0) {
+    contador--;
+    ultimoTiempoSalida = tiempoActual;   // Actualiza el tiempo para evitar rebotes
+    mostrarNumero(contador);             // Actualiza el número en los displays
+  }
+
+  // --- Manejo de la alarma ---
+  if (contador >= 60) {
+    // Activa la alarma cuando se alcanza o supera el límite de 60 pacientes
+    alarmaActiva = true;
+
+    // Parpadeo del LED de alarma cada 500 ms
+    if (tiempoActual - ultimoParpadeo >= intervaloParpadeo) {
+      estadoAlarma = !estadoAlarma;       // Cambia el estado del LED (encendido/apagado)
+      digitalWrite(ALARMA, estadoAlarma);
+      ultimoParpadeo = tiempoActual;      // Reinicia el temporizador de parpadeo
+    }
+  } else if (alarmaActiva) {
+    // Apaga la alarma cuando el contador baja de 60 pacientes
+    alarmaActiva = false;
+    digitalWrite(ALARMA, LOW);            // Apaga el LED de la alarma
+    estadoAlarma = LOW;                   // Restablece el estado de la alarma
+  }
+}
+
+// --- Función para mostrar el número en los displays ---
+// Separa el número en decenas y unidades y los envía a sus respectivos decodificadores.
+void mostrarNumero(int numero) {
+  int decenas = numero / 10;              // Obtiene la parte de las decenas
+  int unidades = numero % 10;             // Obtiene la parte de las unidades
+
+  enviarAlDecodificador(decenas, DECODIFICADOR_DECENAS_A, DECODIFICADOR_DECENAS_B, DECODIFICADOR_DECENAS_C, DECODIFICADOR_DECENAS_D);
+  enviarAlDecodificador(unidades, DECODIFICADOR_UNIDADES_A, DECODIFICADOR_UNIDADES_B, DECODIFICADOR_UNIDADES_C, DECODIFICADOR_UNIDADES_D);
+}
+
+// --- Función para enviar un dígito al decodificador 74LS47 ---
+// valor: dígito a mostrar (0-9)
+// pinA, pinB, pinC, pinD: pines conectados a las entradas A, B, C, D del decodificador
+void enviarAlDecodificador(int valor, int pinA, int pinB, int pinC, int pinD) {
+  digitalWrite(pinA, valor & 0x01);           // Bit 0 del valor
+  digitalWrite(pinB, (valor >> 1) & 0x01);    // Bit 1 del valor
+  digitalWrite(pinC, (valor >> 2) & 0x01);    // Bit 2 del valor
+  digitalWrite(pinD, (valor >> 3) & 0x01);    // Bit 3 del valor
+}
+
